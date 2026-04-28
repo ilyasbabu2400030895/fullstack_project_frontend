@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 
-export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpdateAssignment, onDeleteAssignment, submissions = [], onGradeSubmission, assignments = [], user }) {
+export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpdateAssignment, onDeleteAssignment, submissions = [], onGradeSubmission, assignments = [], user, requestState = {}, requestError = '' }) {
   const teacherSubject = user?.subject?.trim() || 'General'
   const [activeMenu, setActiveMenu] = useState('dashboard')
   const [query, setQuery] = useState('')
@@ -10,8 +10,11 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
   const [detailSubmission, setDetailSubmission] = useState(null)
   const [editingAssignment, setEditingAssignment] = useState(null)
   const [publishNotice, setPublishNotice] = useState('')
+  const [publishError, setPublishError] = useState('')
   const [gradeInput, setGradeInput] = useState('')
   const [feedbackInput, setFeedbackInput] = useState('')
+  const [editError, setEditError] = useState('')
+  const [gradeError, setGradeError] = useState('')
   const [form, setForm] = useState({
     title: '',
     subject: teacherSubject,
@@ -82,29 +85,33 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
 
   const handlePublish = async (event) => {
     event.preventDefault()
+    setPublishError('')
+    setPublishNotice('')
     const assignmentTitle = form.title.trim()
     if (!assignmentTitle || !form.dueDate) {
-      window.alert('Title and due date are required.')
+      setPublishError('Title and due date are required.')
       return
     }
-    const published = await onPublishAssignment?.({
+    const response = await onPublishAssignment?.({
       title: assignmentTitle,
       dueDate: form.dueDate,
       subject: teacherSubject,
       points: form.points,
       file: selectedFileBlob
     })
-    if (!published) {
-      window.alert('Unable to publish assignment. Please try again.')
+    if (!response?.success) {
+      setPublishError(response?.message || 'Unable to publish assignment. Please try again.')
       return
     }
-    setPublishNotice(`Assignment "${assignmentTitle}" published successfully.`)
+    setPublishError('')
+    setPublishNotice(response?.message || `Assignment "${assignmentTitle}" published successfully.`)
     setForm({ title: '', subject: teacherSubject, dueDate: '', points: '100' })
     setSelectedFile('')
     setSelectedFileBlob(null)
   }
 
   const handleStartEditAssignment = (assignment) => {
+    setEditError('')
     setEditingAssignment({
       ...assignment,
       points: assignment?.points || '100'
@@ -117,10 +124,11 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
   }
 
   const handleCloseEditModal = () => {
+    setEditError('')
     setEditingAssignment(null)
   }
 
-  const handleSaveAssignment = (event) => {
+  const handleSaveAssignment = async (event) => {
     event.preventDefault()
     if (!editingAssignment?.id) return
 
@@ -133,43 +141,63 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
     }
 
     if (!nextAssignment.title || !nextAssignment.dueDate) {
-      window.alert('Title and due date are required.')
+      setEditError('Title and due date are required.')
       return
     }
 
-    onUpdateAssignment?.(nextAssignment)
+    setEditError('')
+    const response = await onUpdateAssignment?.(nextAssignment)
+    if (!response?.success) {
+      setEditError(response?.message || 'Unable to update assignment.')
+      return
+    }
+
     setEditingAssignment(null)
   }
 
-  const handleDeletePublishedAssignment = (assignmentId) => {
+  const handleDeletePublishedAssignment = async (assignmentId) => {
     const confirmed = window.confirm('Delete this published assignment?')
     if (!confirmed) return
-    onDeleteAssignment?.(assignmentId)
+    const response = await onDeleteAssignment?.(assignmentId)
+    if (!response?.success) {
+      setPublishError(response?.message || 'Unable to delete assignment.')
+      return
+    }
+
+    setPublishNotice(response?.message || 'Assignment deleted successfully.')
   }
 
   const handleGradeNow = (submission) => {
+    setGradeError('')
     setGradingSubmission(submission)
     setGradeInput('')
     setFeedbackInput('')
   }
 
   const handleCloseGradeModal = () => {
+    setGradeError('')
     setGradingSubmission(null)
     setGradeInput('')
     setFeedbackInput('')
   }
 
-  const handleSubmitGrade = (event) => {
+  const handleSubmitGrade = async (event) => {
     event.preventDefault()
     if (!gradingSubmission) return
 
     const score = Number(gradeInput)
     if (Number.isNaN(score) || score < 0 || score > 100) {
-      window.alert('Please enter a valid grade between 0 and 100.')
+      setGradeError('Please enter a valid grade between 0 and 100.')
       return
     }
 
-    onGradeSubmission?.(gradingSubmission.id, Math.round(score), feedbackInput.trim())
+    setGradeError('')
+    const response = await onGradeSubmission?.(gradingSubmission.id, Math.round(score), feedbackInput.trim())
+    if (!response?.success) {
+      setGradeError(response?.message || 'Unable to save grade.')
+      return
+    }
+
     handleCloseGradeModal()
   }
 
@@ -336,13 +364,20 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
               </div>
             </div>
             <div style={styles.publishRow}>
-              {publishNotice ? <p style={styles.noticeText}>{publishNotice}</p> : null}
-              <button style={styles.primaryBtn} type="submit">
-                Publish Assignment
+              {publishError ? <p style={styles.errorText}>{publishError}</p> : null}
+              {!publishError && publishNotice ? <p style={styles.noticeText}>{publishNotice}</p> : null}
+              <button
+                style={{ ...styles.primaryBtn, ...(requestState.publish ? styles.actionBtnDisabled : {}) }}
+                type="submit"
+                disabled={requestState.publish}
+              >
+                {requestState.publish ? 'Publishing...' : 'Publish Assignment'}
               </button>
             </div>
           </form>
         </section> : null}
+
+        {requestError ? <p style={styles.errorBanner}>{requestError}</p> : null}
 
         {activeMenu === 'dashboard' || activeMenu === 'assignments' ? <section style={styles.card}>
           <div style={styles.cardHeader}>Published Assignments</div>
@@ -392,10 +427,15 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
                       <td style={styles.td}>
                         <div style={styles.actionGroup}>
                           <button type="button" style={styles.secondaryBtnSmall} onClick={() => handleStartEditAssignment(item)}>
-                            Modify
+                            {requestState.update ? 'Updating...' : 'Modify'}
                           </button>
-                          <button type="button" style={styles.dangerBtnSmall} onClick={() => handleDeletePublishedAssignment(item.id)}>
-                            Delete
+                          <button
+                            type="button"
+                            style={{ ...styles.dangerBtnSmall, ...(requestState.delete ? styles.actionBtnDisabled : {}) }}
+                            onClick={() => handleDeletePublishedAssignment(item.id)}
+                            disabled={requestState.delete}
+                          >
+                            {requestState.delete ? 'Deleting...' : 'Delete'}
                           </button>
                         </div>
                       </td>
@@ -459,8 +499,13 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
                     </td>
                     <td style={styles.td}>
                       {submission.status !== 'graded' ? (
-                        <button style={styles.primaryBtnSmall} type="button" onClick={() => handleGradeNow(submission)}>
-                          Grade Now
+                        <button
+                          style={{ ...styles.primaryBtnSmall, ...(requestState.grade ? styles.actionBtnDisabled : {}) }}
+                          type="button"
+                          onClick={() => handleGradeNow(submission)}
+                          disabled={requestState.grade}
+                        >
+                          {requestState.grade ? 'Grading...' : 'Grade Now'}
                         </button>
                       ) : (
                         <button style={styles.secondaryBtnSmall} type="button" onClick={() => handleViewDetails(submission)}>
@@ -545,6 +590,7 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
                   value={editingAssignment.points || '100'}
                   onChange={handleEditAssignmentChange}
                 />
+                {editError ? <p style={styles.modalErrorText}>{editError}</p> : null}
                 <div style={styles.modalActions}>
                   <button type="button" style={styles.secondaryBtnSmall} onClick={handleCloseEditModal}>
                     Cancel
@@ -583,12 +629,13 @@ export default function TeacherDashboard({ onLogout, onPublishAssignment, onUpda
                   onChange={(event) => setFeedbackInput(event.target.value)}
                   placeholder="Enter feedback"
                 />
+                {gradeError ? <p style={styles.modalErrorText}>{gradeError}</p> : null}
                 <div style={styles.modalActions}>
                   <button type="button" style={styles.secondaryBtnSmall} onClick={handleCloseGradeModal}>
                     Cancel
                   </button>
                   <button type="submit" style={styles.primaryBtnSmall}>
-                    Save Grade
+                    {requestState.grade ? 'Saving...' : 'Save Grade'}
                   </button>
                 </div>
               </form>
@@ -883,6 +930,12 @@ const styles = {
     fontSize: 13,
     fontWeight: 600
   },
+  errorText: {
+    margin: 0,
+    color: '#b91c1c',
+    fontSize: 13,
+    fontWeight: 600
+  },
   primaryBtn: {
     border: 'none',
     borderRadius: 8,
@@ -892,6 +945,20 @@ const styles = {
     color: '#fff',
     fontWeight: 700,
     cursor: 'pointer'
+  },
+  actionBtnDisabled: {
+    opacity: 0.72,
+    cursor: 'not-allowed'
+  },
+  errorBanner: {
+    margin: 0,
+    padding: '10px 14px',
+    borderRadius: 8,
+    border: '1px solid #fecaca',
+    background: '#fef2f2',
+    color: '#991b1b',
+    fontWeight: 600,
+    fontSize: 13
   },
   tableHeader: {
     borderBottom: '1px solid #dbeafe',
@@ -1058,6 +1125,12 @@ const styles = {
   modalForm: {
     display: 'grid',
     gap: 8
+  },
+  modalErrorText: {
+    margin: '2px 0 0',
+    color: '#b91c1c',
+    fontSize: 13,
+    fontWeight: 600
   },
   textArea: {
     width: '100%',

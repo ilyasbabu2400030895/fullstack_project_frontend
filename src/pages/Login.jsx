@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react'
 import api from '../config/api'
 
+//“This file contains both login and register forms. User selects role 
+// as teacher or student, enters details, and the form sends data to backend using fetch. 
+// If login is successful, the returned user data is passed to App.jsx and dashboard opens.”
+
 const ACCOUNTS_STORAGE_KEY = 'assignmate_accounts'
 const ACCOUNTS_RESET_FLAG_KEY = 'assignmate_accounts_reset_v1'
 
@@ -35,58 +39,51 @@ export default function Login({ onLogin }) {
   const loginLabel = selectedRole === 'teacher' ? 'Teacher ID' : 'Student ID'
   const loginPlaceholder = selectedRole === 'teacher' ? 'Enter teacher ID' : 'Enter student ID'
 
-  
-
   const handleLoginSubmit = async (event) => {
     event.preventDefault()
-    onLogin({
-      userId: username,
-      password,
-      role: selectedRole.toUpperCase()
-    })
+    setAuthMessage({ type: '', text: '' })
+
+    try {
+      await onLogin?.({
+        userId: username,
+        password,
+        role: selectedRole.toUpperCase()
+      })
+    } catch (error) {
+      setAuthMessage({ type: 'error', text: error.message || 'Login failed' })
+    }
   }
 
   const handleRegisterSubmit = async (event) => {
-  event.preventDefault()
-  setAuthMessage({ type: '', text: '' })
+    event.preventDefault()
+    setAuthMessage({ type: '', text: '' })
 
-  if (password !== confirmPassword) {
-    window.alert('Passwords do not match.')
-    return
-  }
+    if (password !== confirmPassword) {
+      setAuthMessage({ type: 'error', text: 'Passwords do not match.' })
+      return
+    }
 
-  try {
-    const response = await fetch(apiUrl('/auth/signup'), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        fullName: fullName,
-        email: email,
-        password: password,
+    try {
+      await api.post('/auth/signup', {
+        fullName,
+        userId: username,
+        email,
+        password,
+        confirmPassword,
         role: selectedRole.toUpperCase(),
-        subject: teacherSubject
+        subject: selectedRole === 'teacher' ? teacherSubject : null
       })
-    })
 
-    const data = await response.json()
-
-    if (response.ok) {
       setAuthMessage({
         type: 'success',
         text: 'Account created successfully. Please login.'
       })
       setIsRegistering(false)
-    } else {
-      window.alert(data.message || "Signup failed")
+    } catch (error) {
+      console.error(error)
+      setAuthMessage({ type: 'error', text: error.message || 'Signup failed' })
     }
-
-  } catch (error) {
-    console.error(error)
-    window.alert("Server error")
   }
-}
 
   return (
     <section style={{ ...styles.page, ...(isNarrow ? styles.pageNarrow : {}) }}>
@@ -106,9 +103,7 @@ export default function Login({ onLogin }) {
         )}
       </div>
 
-      <div
-        style={{ ...styles.rightPanel, ...(isNarrow ? styles.rightPanelNarrow : {}) }}
-      >
+      <div style={{ ...styles.rightPanel, ...(isNarrow ? styles.rightPanelNarrow : {}) }}>
         <div style={styles.card}>
           <div style={styles.cardHeader}>
             <h2 style={styles.cardTitle}>{isRegistering ? 'Create Account' : 'Login'}</h2>
@@ -143,12 +138,14 @@ export default function Login({ onLogin }) {
                 </button>
               </div>
 
-              <label>User ID</label>
-                <input
-                  type="text"
-                  placeholder="Enter user ID (e.g. student01)"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+              <label style={styles.label}>User ID</label>
+              <input
+                style={styles.input}
+                type="text"
+                placeholder="Enter user ID (e.g. student01)"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                required
               />
 
               <label style={styles.label}>Password</label>
@@ -160,12 +157,6 @@ export default function Login({ onLogin }) {
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
-
-              <div style={styles.rightText}>
-                <button style={styles.linkButton} type="button">
-                  Forgot Password ?
-                </button>
-              </div>
 
               <button style={styles.primaryButton} type="submit">
                 Log in
@@ -227,252 +218,39 @@ export default function Login({ onLogin }) {
                   <input
                     style={styles.input}
                     type="email"
-                      await api.post('/auth/signup', {
-                        fullName: fullName,
-                        email: email,
-                        password: password,
-                        role: selectedRole.toUpperCase(),
-                        subject: teacherSubject
-                      })
+                    placeholder="Enter your email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    required
+                  />
+                </>
+              ) : null}
 
-                      setAuthMessage({
-                        type: 'success',
-                        text: 'Account created successfully. Please login.'
-                      })
-                      setIsRegistering(false)
-                    } catch (error) {
-                      console.error(error)
-                      window.alert(error.message || 'Signup failed')
-                    }
-                  }
+              {selectedRole === 'teacher' ? (
+                <>
+                  <label style={styles.label}>Subject / Course</label>
+                  <input
+                    style={styles.input}
+                    type="text"
+                    placeholder="Enter your subject (e.g. Fullstack)"
+                    value={teacherSubject}
+                    onChange={(event) => setTeacherSubject(event.target.value)}
+                    required
+                  />
+                </>
+              ) : null}
 
-                    return (
-                      <section style={{ ...styles.page, ...(isNarrow ? styles.pageNarrow : {}) }}>
-                        <div style={styles.leftPanel}>
-                          {!logoFailed ? (
-                            <img
-                              src="/assignmate-logo.png"
-                              alt="AssignMate Logo"
-                              style={styles.leftLogo}
-                              onError={() => setLogoFailed(true)}
-                            />
-                          ) : (
-                            <div style={styles.logoFallbackWrap}>
-                              <h1 style={styles.fallbackTitle}>AssignMate</h1>
-                              <p style={styles.fallbackSub}>Smart Assignment Platform</p>
-                            </div>
-                          )}
-                        </div>
+              <label style={styles.label}>{loginLabel}</label>
+              <input
+                style={styles.input}
+                type="text"
+                placeholder={loginPlaceholder}
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                required
+              />
 
-                        <div
-                          style={{ ...styles.rightPanel, ...(isNarrow ? styles.rightPanelNarrow : {}) }}
-                        >
-                          <div style={styles.card}>
-                            <div style={styles.cardHeader}>
-                              <h2 style={styles.cardTitle}>{isRegistering ? 'Create Account' : 'Login'}</h2>
-                              <p style={styles.cardText}>
-                                {isRegistering ? 'Register for a new account' : 'Enter your credentials to continue'}
-                              </p>
-                            </div>
-
-                            {!isRegistering ? (
-                              <form style={styles.cardBody} onSubmit={handleLoginSubmit}>
-                                <label style={styles.label}>Login as</label>
-                                <div style={styles.roleGrid}>
-                                  <button
-                                    type="button"
-                                    style={{
-                                      ...styles.roleButton,
-                                      ...(selectedRole === 'student' ? styles.roleButtonActive : {})
-                                    }}
-                                    onClick={() => setSelectedRole('student')}
-                                  >
-                                    Student
-                                  </button>
-                                  <button
-                                    type="button"
-                                    style={{
-                                      ...styles.roleButton,
-                                      ...(selectedRole === 'teacher' ? styles.roleButtonActive : {})
-                                    }}
-                                    onClick={() => setSelectedRole('teacher')}
-                                  >
-                                    Teacher
-                                  </button>
-                                </div>
-
-                                <label>User ID</label>
-                                  <input
-                                    type="text"
-                                    placeholder="Enter user ID (e.g. student01)"
-                                    value={username}
-                                    onChange={(e) => setUsername(e.target.value)}
-                                />
-
-                                <label style={styles.label}>Password</label>
-                                <input
-                                  style={styles.input}
-                                  type="password"
-                                  placeholder="Enter your password"
-                                  value={password}
-                                  onChange={(event) => setPassword(event.target.value)}
-                                  required
-                                />
-
-                                <div style={styles.rightText}>
-                                  <button style={styles.linkButton} type="button">
-                                    Forgot Password ?
-                                  </button>
-                                </div>
-
-                                <button style={styles.primaryButton} type="submit">
-                                  Log in
-                                </button>
-
-                                <div style={styles.divider} />
-                                <div style={styles.centerText}>
-                                  <button
-                                    style={styles.linkButton}
-                                    type="button"
-                                    onClick={() => {
-                                      setIsRegistering(true)
-                                      setAuthMessage({ type: '', text: '' })
-                                    }}
-                                  >
-                                    Don't have an account? Create one
-                                  </button>
-                                </div>
-                              </form>
-                            ) : (
-                              <form style={styles.cardBody} onSubmit={handleRegisterSubmit}>
-                                <label style={styles.label}>Register as</label>
-                                <div style={styles.roleGrid}>
-                                  <button
-                                    type="button"
-                                    style={{
-                                      ...styles.roleButton,
-                                      ...(selectedRole === 'student' ? styles.roleButtonActive : {})
-                                    }}
-                                    onClick={() => setSelectedRole('student')}
-                                  >
-                                    Student
-                                  </button>
-                                  <button
-                                    type="button"
-                                    style={{
-                                      ...styles.roleButton,
-                                      ...(selectedRole === 'teacher' ? styles.roleButtonActive : {})
-                                    }}
-                                    onClick={() => setSelectedRole('teacher')}
-                                  >
-                                    Teacher
-                                  </button>
-                                </div>
-
-                                {selectedRole !== 'teacher' ? (
-                                  <>
-                                    <label style={styles.label}>Full Name</label>
-                                    <input
-                                      style={styles.input}
-                                      type="text"
-                                      placeholder="Enter your full name"
-                                      value={fullName}
-                                      onChange={(event) => setFullName(event.target.value)}
-                                      required
-                                    />
-
-                                    <label style={styles.label}>Email</label>
-                                    <input
-                                      style={styles.input}
-                                      type="email"
-                                      placeholder="Enter your email"
-                                      value={email}
-                                      onChange={(event) => setEmail(event.target.value)}
-                                      required
-                                    />
-                                  </>
-                                ) : null}
-
-                                {selectedRole === 'teacher' ? (
-                                  <>
-                                    <label style={styles.label}>Subject / Course</label>
-                                    <input
-                                      style={styles.input}
-                                      type="text"
-                                      placeholder="Enter your subject (e.g. Fullstack)"
-                                      value={teacherSubject}
-                                      onChange={(event) => setTeacherSubject(event.target.value)}
-                                      required
-                                    />
-                                  </>
-                                ) : null}
-
-                                <label style={styles.label}>{loginLabel}</label>
-                                <input
-                                  style={styles.input}
-                                  type="text"
-                                  placeholder={loginPlaceholder}
-                                  value={username}
-                                  onChange={(event) => setUsername(event.target.value)}
-                                  required
-                                />
-
-                                <label style={styles.label}>Password</label>
-                                <input
-                                  style={styles.input}
-                                  type="password"
-                                  placeholder="Enter your password"
-                                  value={password}
-                                  onChange={(event) => setPassword(event.target.value)}
-                                  required
-                                />
-
-                                <label style={styles.label}>Confirm Password</label>
-                                <input
-                                  style={styles.input}
-                                  type="password"
-                                  placeholder="Confirm your password"
-                                  value={confirmPassword}
-                                  onChange={(event) => setConfirmPassword(event.target.value)}
-                                  required
-                                />
-
-                                <button style={styles.primaryButton} type="submit">
-                                  Register
-                                </button>
-
-                                <div style={styles.centerText}>
-                                  <button
-                                    style={styles.linkButton}
-                                    type="button"
-                                    onClick={() => {
-                                      setIsRegistering(false)
-                                      setAuthMessage({ type: '', text: '' })
-                                    }}
-                                  >
-                                    Already have an account? Login
-                                  </button>
-                                </div>
-                              </form>
-                            )}
-
-                            {authMessage.text ? (
-                              <div style={authMessage.type === 'success' ? styles.successMessage : styles.errorMessage}>
-                                {authMessage.text}
-                              </div>
-                            ) : null}
-                          </div>
-
-                          <div style={styles.footerWrap}>
-                            <button style={styles.cookieButton} type="button">
-                              Cookie preferences
-                            </button>
-                            <p style={styles.footerText}>© 2026 AssignMate Assignment System</p>
-                          </div>
-                        </div>
-                      </section>
-                    )
-                  }
+              <label style={styles.label}>Password</label>
               <input
                 style={styles.input}
                 type="password"
@@ -516,13 +294,6 @@ export default function Login({ onLogin }) {
               {authMessage.text}
             </div>
           ) : null}
-        </div>
-
-        <div style={styles.footerWrap}>
-          <button style={styles.cookieButton} type="button">
-            Cookie preferences
-          </button>
-          <p style={styles.footerText}>© 2026 AssignMate Assignment System</p>
         </div>
       </div>
     </section>
@@ -639,10 +410,6 @@ const styles = {
     outline: 'none',
     background: '#fff'
   },
-  rightText: {
-    marginTop: 10,
-    textAlign: 'right'
-  },
   linkButton: {
     border: 'none',
     background: 'transparent',
@@ -691,22 +458,5 @@ const styles = {
     color: '#991b1b',
     fontSize: 14,
     fontWeight: 600
-  },
-  footerWrap: {
-    textAlign: 'center',
-    marginTop: 12
-  },
-  cookieButton: {
-    border: 'none',
-    background: 'transparent',
-    color: '#475569',
-    textDecoration: 'underline',
-    cursor: 'pointer',
-    fontSize: 13
-  },
-  footerText: {
-    margin: '8px 0 0',
-    color: '#64748b',
-    fontSize: 12
   }
 }

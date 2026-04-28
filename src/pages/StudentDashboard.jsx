@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react'
 const fallbackAssignments = []
 const fallbackSubmissions = []
 
-export default function StudentDashboard({ onNavigate, onLogout, assignments = fallbackAssignments, submissions = fallbackSubmissions, onSubmitAssignment, user }) {
+export default function StudentDashboard({ onNavigate, onLogout, assignments = fallbackAssignments, submissions = fallbackSubmissions, onSubmitAssignment, user, submitLoading = false, requestError = '' }) {
   const [activeMenu, setActiveMenu] = useState('dashboard')
   const [query, setQuery] = useState('')
   const [selectedFiles, setSelectedFiles] = useState({})
@@ -73,14 +73,20 @@ export default function StudentDashboard({ onNavigate, onLogout, assignments = f
     setUploadErrors((prev) => ({ ...prev, [id]: '' }))
   }
 
-  const handleUpload = (id) => {
+  const handleUpload = async (id) => {
     const file = selectedFiles[id]
     if (!file) {
       setUploadErrors((prev) => ({ ...prev, [id]: 'Please choose a file before uploading.' }))
       return
     }
+
     setUploadErrors((prev) => ({ ...prev, [id]: '' }))
-    onSubmitAssignment?.(id, file)
+    const response = await onSubmitAssignment?.(id, file)
+    if (!response?.success) {
+      setUploadErrors((prev) => ({ ...prev, [id]: response?.message || 'Unable to submit assignment.' }))
+      return
+    }
+
     setSelectedFiles((prev) => ({ ...prev, [id]: null }))
   }
 
@@ -190,6 +196,7 @@ export default function StudentDashboard({ onNavigate, onLogout, assignments = f
                   onChange={(e) => setQuery(e.target.value)}
                 />
               </div>
+              {requestError ? <p style={styles.errorBanner}>{requestError}</p> : null}
               <div style={styles.tableWrap}>
                 <table style={styles.table}>
                   <thead>
@@ -240,13 +247,13 @@ export default function StudentDashboard({ onNavigate, onLogout, assignments = f
                                 <button
                                   style={{
                                     ...styles.primaryBtnSmall,
-                                    ...(selectedFiles[a.id] ? {} : styles.primaryBtnDisabled)
+                                    ...(selectedFiles[a.id] && !submitLoading ? {} : styles.primaryBtnDisabled)
                                   }}
                                   type="button"
                                   onClick={() => handleUpload(a.id)}
-                                  disabled={!selectedFiles[a.id]}
+                                  disabled={!selectedFiles[a.id] || submitLoading}
                                 >
-                                  Upload
+                                  {submitLoading ? 'Uploading...' : 'Upload'}
                                 </button>
                               </div>
                               {uploadErrors[a.id] ? <p style={styles.uploadError}>{uploadErrors[a.id]}</p> : null}
@@ -565,6 +572,16 @@ const styles = {
   },
   tableWrap: {
     overflowX: 'auto'
+  },
+  errorBanner: {
+    margin: '10px 16px 0',
+    padding: '10px 12px',
+    borderRadius: 8,
+    border: '1px solid #fecaca',
+    background: '#fef2f2',
+    color: '#991b1b',
+    fontWeight: 600,
+    fontSize: 13
   },
   table: {
     width: '100%',

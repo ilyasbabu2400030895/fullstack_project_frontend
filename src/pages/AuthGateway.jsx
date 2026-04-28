@@ -4,7 +4,7 @@ import api from '../config/api'
 const ACCOUNTS_STORAGE_KEY = 'assignmate_accounts'
 const ACCOUNTS_RESET_FLAG_KEY = 'assignmate_accounts_reset_v1'
 
-export default function AuthGateway({ onLogin }) {
+export default function AuthGateway({ onLogin, loginError = '', loginLoading = false, onClearLoginError }) {
   const [isRegistering, setIsRegistering] = useState(false)
   const [selectedRole, setSelectedRole] = useState('student')
   const [username, setUsername] = useState('')
@@ -13,6 +13,9 @@ export default function AuthGateway({ onLogin }) {
   const [email, setEmail] = useState('')
   const [teacherSubject, setTeacherSubject] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [otp, setOtp] = useState('')
+  const [otpRequested, setOtpRequested] = useState(false)
+  const [registerLoading, setRegisterLoading] = useState(false)
   const [authMessage, setAuthMessage] = useState({ type: '', text: '' })
   const [logoFailed, setLogoFailed] = useState(false)
   const [isNarrow, setIsNarrow] = useState(false)
@@ -35,9 +38,34 @@ export default function AuthGateway({ onLogin }) {
   const loginLabel = selectedRole === 'teacher' ? 'Teacher ID' : 'Student ID'
   const loginPlaceholder = selectedRole === 'teacher' ? 'Enter teacher ID' : 'Enter student ID'
 
-  const handleLoginSubmit = (event) => {
+  const resetOtpFlow = () => {
+    setOtp('')
+    setOtpRequested(false)
+  }
+
+  const markSignupDetailsChanged = () => {
+    if (otpRequested) {
+      resetOtpFlow()
+      setAuthMessage({ type: 'success', text: 'Signup details changed. Request a fresh OTP to continue.' })
+    }
+  }
+
+  const buildSignupPayload = () => ({
+    fullName,
+    userId: username,
+    email,
+    password,
+    confirmPassword,
+    role: selectedRole.toUpperCase(),
+    subject: selectedRole === 'teacher' ? teacherSubject : null
+  })
+
+  const handleLoginSubmit = async (event) => {
     event.preventDefault()
-    onLogin({
+    setAuthMessage({ type: '', text: '' })
+    onClearLoginError?.()
+
+    await onLogin({
       userId: username,
       password,
       role: selectedRole.toUpperCase()
@@ -46,22 +74,35 @@ export default function AuthGateway({ onLogin }) {
 
   const handleRegisterSubmit = async (event) => {
     event.preventDefault()
+    onClearLoginError?.()
     setAuthMessage({ type: '', text: '' })
 
     if (password !== confirmPassword) {
-      window.alert('Passwords do not match.')
+      setAuthMessage({ type: 'error', text: 'Passwords do not match.' })
       return
     }
 
+    setRegisterLoading(true)
+
     try {
+      if (!otpRequested) {
+        await api.post('/auth/signup/request-otp', buildSignupPayload())
+        setOtpRequested(true)
+        setAuthMessage({
+          type: 'success',
+          text: 'OTP sent to your email. Enter it below to finish creating your account.'
+        })
+        return
+      }
+
+      if (!otp.trim()) {
+        setAuthMessage({ type: 'error', text: 'Enter the OTP sent to your email.' })
+        return
+      }
+
       await api.post('/auth/signup', {
-        fullName,
-        userId: username,
         email,
-        password,
-        confirmPassword,
-        role: selectedRole.toUpperCase(),
-        subject: selectedRole === 'teacher' ? teacherSubject : null
+        otp
       })
 
       setAuthMessage({
@@ -69,9 +110,18 @@ export default function AuthGateway({ onLogin }) {
         text: 'Account created successfully. Please login.'
       })
       setIsRegistering(false)
+      setUsername('')
+      setPassword('')
+      setFullName('')
+      setEmail('')
+      setTeacherSubject('')
+      setConfirmPassword('')
+      resetOtpFlow()
     } catch (error) {
       console.error(error)
-      window.alert(error.message || 'Signup failed')
+      setAuthMessage({ type: 'error', text: error.message || 'Signup failed' })
+    } finally {
+      setRegisterLoading(false)
     }
   }
 
@@ -112,7 +162,10 @@ export default function AuthGateway({ onLogin }) {
                     ...styles.roleButton,
                     ...(selectedRole === 'student' ? styles.roleButtonActive : {})
                   }}
-                  onClick={() => setSelectedRole('student')}
+                  onClick={() => {
+                    setSelectedRole('student')
+                    markSignupDetailsChanged()
+                  }}
                 >
                   Student
                 </button>
@@ -122,7 +175,10 @@ export default function AuthGateway({ onLogin }) {
                     ...styles.roleButton,
                     ...(selectedRole === 'teacher' ? styles.roleButtonActive : {})
                   }}
-                  onClick={() => setSelectedRole('teacher')}
+                  onClick={() => {
+                    setSelectedRole('teacher')
+                    markSignupDetailsChanged()
+                  }}
                 >
                   Teacher
                 </button>
@@ -148,14 +204,12 @@ export default function AuthGateway({ onLogin }) {
                 required
               />
 
-              <div style={styles.rightText}>
-                <button style={styles.linkButton} type="button">
-                  Forgot Password ?
-                </button>
-              </div>
-
-              <button style={styles.primaryButton} type="submit">
-                Log in
+              <button
+                style={{ ...styles.primaryButton, ...(loginLoading ? styles.primaryButtonDisabled : {}) }}
+                type="submit"
+                disabled={loginLoading}
+              >
+                {loginLoading ? 'Logging in...' : 'Log in'}
               </button>
 
               <div style={styles.divider} />
@@ -165,7 +219,9 @@ export default function AuthGateway({ onLogin }) {
                   type="button"
                   onClick={() => {
                     setIsRegistering(true)
+                    resetOtpFlow()
                     setAuthMessage({ type: '', text: '' })
+                    onClearLoginError?.()
                   }}
                 >
                   Don't have an account? Create one
@@ -198,29 +254,33 @@ export default function AuthGateway({ onLogin }) {
                 </button>
               </div>
 
-              {selectedRole !== 'teacher' ? (
-                <>
-                  <label style={styles.label}>Full Name</label>
-                  <input
-                    style={styles.input}
-                    type="text"
-                    placeholder="Enter your full name"
-                    value={fullName}
-                    onChange={(event) => setFullName(event.target.value)}
-                    required
-                  />
+              <>
+                <label style={styles.label}>Full Name</label>
+                <input
+                  style={styles.input}
+                  type="text"
+                  placeholder="Enter your full name"
+                  value={fullName}
+                  onChange={(event) => {
+                    setFullName(event.target.value)
+                    markSignupDetailsChanged()
+                  }}
+                  required
+                />
 
-                  <label style={styles.label}>Email</label>
-                  <input
-                    style={styles.input}
-                    type="email"
-                    placeholder="Enter your email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    required
-                  />
-                </>
-              ) : null}
+                <label style={styles.label}>Email</label>
+                <input
+                  style={styles.input}
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(event) => {
+                    setEmail(event.target.value)
+                    markSignupDetailsChanged()
+                  }}
+                  required
+                />
+              </>
 
               {selectedRole === 'teacher' ? (
                 <>
@@ -230,7 +290,10 @@ export default function AuthGateway({ onLogin }) {
                     type="text"
                     placeholder="Enter your subject (e.g. Fullstack)"
                     value={teacherSubject}
-                    onChange={(event) => setTeacherSubject(event.target.value)}
+                    onChange={(event) => {
+                      setTeacherSubject(event.target.value)
+                      markSignupDetailsChanged()
+                    }}
                     required
                   />
                 </>
@@ -242,7 +305,10 @@ export default function AuthGateway({ onLogin }) {
                 type="text"
                 placeholder={loginPlaceholder}
                 value={username}
-                onChange={(event) => setUsername(event.target.value)}
+                onChange={(event) => {
+                  setUsername(event.target.value)
+                  markSignupDetailsChanged()
+                }}
                 required
               />
 
@@ -252,7 +318,10 @@ export default function AuthGateway({ onLogin }) {
                 type="password"
                 placeholder="Enter your password"
                 value={password}
-                onChange={(event) => setPassword(event.target.value)}
+                onChange={(event) => {
+                  setPassword(event.target.value)
+                  markSignupDetailsChanged()
+                }}
                 required
               />
 
@@ -262,13 +331,59 @@ export default function AuthGateway({ onLogin }) {
                 type="password"
                 placeholder="Confirm your password"
                 value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
+                onChange={(event) => {
+                  setConfirmPassword(event.target.value)
+                  markSignupDetailsChanged()
+                }}
                 required
               />
 
-              <button style={styles.primaryButton} type="submit">
-                Register
+              {otpRequested ? (
+                <>
+                  <label style={styles.label}>Email OTP</label>
+                  <input
+                    style={styles.input}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Enter the 6-digit OTP"
+                    value={otp}
+                    onChange={(event) => setOtp(event.target.value)}
+                    required
+                  />
+                </>
+              ) : null}
+
+              <button
+                style={{ ...styles.primaryButton, ...(registerLoading ? styles.primaryButtonDisabled : {}) }}
+                type="submit"
+                disabled={registerLoading}
+              >
+                {registerLoading
+                  ? (otpRequested ? 'Verifying OTP...' : 'Sending OTP...')
+                  : (otpRequested ? 'Verify OTP & Register' : 'Send OTP')}
               </button>
+
+              {otpRequested ? (
+                <button
+                  style={styles.secondaryButton}
+                  type="button"
+                  onClick={async () => {
+                    setAuthMessage({ type: '', text: '' })
+                    setRegisterLoading(true)
+                    try {
+                      await api.post('/auth/signup/request-otp', buildSignupPayload())
+                      setAuthMessage({ type: 'success', text: 'A fresh OTP has been sent to your email.' })
+                    } catch (error) {
+                      setAuthMessage({ type: 'error', text: error.message || 'Failed to resend OTP' })
+                    } finally {
+                      setRegisterLoading(false)
+                    }
+                  }}
+                  disabled={registerLoading}
+                >
+                  Resend OTP
+                </button>
+              ) : null}
 
               <div style={styles.centerText}>
                 <button
@@ -276,7 +391,9 @@ export default function AuthGateway({ onLogin }) {
                   type="button"
                   onClick={() => {
                     setIsRegistering(false)
+                    resetOtpFlow()
                     setAuthMessage({ type: '', text: '' })
+                    onClearLoginError?.()
                   }}
                 >
                   Already have an account? Login
@@ -289,6 +406,8 @@ export default function AuthGateway({ onLogin }) {
             <div style={authMessage.type === 'success' ? styles.successMessage : styles.errorMessage}>
               {authMessage.text}
             </div>
+          ) : loginError ? (
+            <div style={styles.errorMessage}>{loginError}</div>
           ) : null}
         </div>
 
@@ -413,10 +532,6 @@ const styles = {
     outline: 'none',
     background: '#fff'
   },
-  rightText: {
-    marginTop: 10,
-    textAlign: 'right'
-  },
   linkButton: {
     border: 'none',
     background: 'transparent',
@@ -435,6 +550,22 @@ const styles = {
     background: 'linear-gradient(120deg, #1d4ed8, #2563eb)',
     color: '#fff',
     fontSize: 18,
+    fontWeight: 700,
+    cursor: 'pointer'
+  },
+  primaryButtonDisabled: {
+    opacity: 0.7,
+    cursor: 'not-allowed'
+  },
+  secondaryButton: {
+    width: '100%',
+    marginTop: 10,
+    border: '1px solid #93c5fd',
+    borderRadius: 8,
+    height: 44,
+    background: '#eff6ff',
+    color: '#1d4ed8',
+    fontSize: 16,
     fontWeight: 700,
     cursor: 'pointer'
   },
